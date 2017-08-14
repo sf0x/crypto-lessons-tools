@@ -3,9 +3,141 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
+#include <limits.h>
 
 #define RABIN 15	// Miller-Rabin variable for testing if a number is prime
-#define OPTIONS "1) Point addition on curve\n2) Check if point is on curve\n3) Point Multiplication (naive)\n0) Quit\n\nChoice: "
+#define OPTIONS "1) Point addition on curve\n2) Check if point is on curve\n3) Point Multiplication (naive)\n4) Get all points (Brute Force)\n0) Quit\n\nChoice: "
+
+short on_curve(mpz_t a, mpz_t b, mpz_t p, mpz_t Px, mpz_t Py);
+short protector(mpz_t x);
+unsigned long hasse(mpz_t p);
+void get_all_p(mpz_t a, mpz_t b, mpz_t p);
+void point_add(mpz_t a, mpz_t b, mpz_t p, mpz_t Px, mpz_t Py, mpz_t Qx, mpz_t Qy, mpz_t Rx, mpz_t Ry, mpz_t infy);
+void point_mul(mpz_t a, mpz_t b, mpz_t p);
+void proof(mpz_t a, mpz_t b, mpz_t p);
+void point_add_input(mpz_t a, mpz_t b, mpz_t p);
+void condition(mpz_t a, mpz_t b, mpz_t p);
+
+unsigned long **all_p;
+unsigned long posctr=0;
+
+// returns 0 if point is on curve, else 1
+short on_curve(mpz_t a, mpz_t b, mpz_t p, mpz_t Px, mpz_t Py){
+	mpz_t x,
+	  	  y,
+	  	  xtwo;
+
+	mpz_init(x);
+	mpz_init(y);
+	mpz_init(xtwo);
+
+	// paste x and compare with y
+	mpz_pow_ui(x,Px,3);
+	mpz_mul(xtwo,a,Px);
+	mpz_add(xtwo,xtwo,b);
+	mpz_add(x,x,xtwo);
+	mpz_mod(x,x,p);
+	mpz_pow_ui(y,Py,2);
+	mpz_mod(y,y,p);
+
+	if(!mpz_cmp(x,y)){
+		mpz_clear(x);
+		mpz_clear(y);
+		mpz_clear(xtwo);
+		return 0;
+	}
+
+	mpz_clear(x);
+	mpz_clear(y);
+	mpz_clear(xtwo);
+	return 1;
+}
+
+// protect stack, if x is longer than long max, return 1 and don't mpz_get_ui
+short protector(mpz_t x){
+	if(mpz_cmp_ui(x,LONG_MAX)>0)
+		return 1;
+	return 0;
+}
+
+// hasse's theorem to get expected maximum amount of points P (hasse's upper bound)
+unsigned long hasse(mpz_t p){
+	mpz_t tmp,
+		  E_max;
+	unsigned long E_up=0;
+
+	mpz_init(tmp);
+	mpz_init(E_max);
+
+	// Hasse's upper bound p+1+2*sqrt(p)
+	mpz_add_ui(E_max,p,1);
+	mpz_sqrt(tmp,p);
+	mpz_mul_ui(tmp,tmp,2);
+	mpz_add(E_max,E_max,tmp);
+
+	if(protector(E_max)){
+		mpz_clear(E_max);
+		mpz_clear(tmp);
+		return 0;
+	}
+	E_up=mpz_get_ui(E_max);
+
+	//gmp_printf("Hasse's test upper bound: %ld\n", E_up);
+	mpz_clear(E_max);
+	mpz_clear(tmp);
+	return E_up;
+}
+
+void get_all_p(mpz_t a, mpz_t b, mpz_t p){
+	mpz_t Px,
+		  Py;
+
+	mpz_init(Px);
+	mpz_init(Py);
+
+	// security trigger
+	short brk=0;
+
+	unsigned long E;
+	E=hasse(p);
+	if(!E){ // check hasse() protector for info
+		gmp_printf("Error, expected amount of points too high!\n");
+	}
+	else{
+		//printf("E: %d\n", E);
+		// allocate space for the points
+		all_p=calloc(E,sizeof(unsigned long));
+		for(unsigned long i=0; i<E; i++){
+			all_p[i]=calloc(2,sizeof(unsigned long));
+		}
+		// try if points are on curve and if yes, save them
+		for(unsigned long i=0; mpz_cmp_ui(p,i)>0; i++){
+			for(unsigned long j=0; mpz_cmp_ui(p,j)>0; j++){
+				if((posctr+1)==E){
+					gmp_printf("OUT OF BOUNDS; REALLOC NEEDED\n");
+					brk=1;
+					break;
+				}
+				mpz_set_ui(Px,i);
+				mpz_set_ui(Py,j);
+				if(!on_curve(a,b,p,Px,Py)){
+					all_p[posctr][0]=i;
+					all_p[posctr][1]=j;
+					posctr++;
+				}
+			}
+			if(brk)
+				break;
+		}
+	}
+	if(!brk){
+		gmp_printf("Found %ld points:\n", posctr+1);
+		for(unsigned long i=0; i<posctr; i++){
+			gmp_printf("(%ld,%ld), ",all_p[i][0],all_p[i][1]);
+		}
+		gmp_printf("O\n");
+	}
+}
 
 void point_add(mpz_t a, mpz_t b, mpz_t p, mpz_t Px, mpz_t Py, mpz_t Qx, mpz_t Qy, mpz_t Rx, mpz_t Ry, mpz_t infy){
 	mpz_t sRx,
@@ -153,10 +285,7 @@ void point_mul(mpz_t a, mpz_t b, mpz_t p){
 // Check if an point P is on the elliptic curve
 void proof(mpz_t a, mpz_t b, mpz_t p){
 	mpz_t Px,
-	  	  Py,
-	  	  x,
-	  	  y,
-	  	  xtwo;
+	  	  Py;
 
 	char *tmp, *garbage;	// temp and garbage vars for input handling
 	tmp=calloc(1,sizeof(long)+1);
@@ -164,9 +293,7 @@ void proof(mpz_t a, mpz_t b, mpz_t p){
 
 	mpz_init(Px);
 	mpz_init(Py);
-	mpz_init(x);
-	mpz_init(y);
-	mpz_init(xtwo);
+	
 
 	gmp_printf("P(x): ");
 	fgets(tmp, sizeof(long)+1, stdin);
@@ -180,25 +307,15 @@ void proof(mpz_t a, mpz_t b, mpz_t p){
 	mpz_set_ui(Py,in);
 	memset(tmp, 0, sizeof(long)+1);	// zerofill tmp to avoid garbage
 
-	// paste x and compare with y
-	mpz_pow_ui(x,Px,3);
-	mpz_mul(xtwo,a,Px);
-	mpz_add(xtwo,xtwo,b);
-	mpz_add(x,x,xtwo);
-	mpz_mod(x,x,p);
-	mpz_pow_ui(y,Py,2);
-	mpz_mod(y,y,p);
+	
 
-	if(!mpz_cmp(x,y))
+	if(!on_curve(a,b,p,Px,Py))
 		gmp_printf("Point P(%Zd,%Zd) is on the elliptic curve\n", Px, Py);
 	else
 		gmp_printf("Point P(%Zd,%Zd) is NOT on the elliptic curve\n", Px, Py);
 
 	mpz_clear(Px);
 	mpz_clear(Py);
-	mpz_clear(x);
-	mpz_clear(y);
-	mpz_clear(xtwo);
 }
 
 void point_add_input(mpz_t a, mpz_t b, mpz_t p){
@@ -357,6 +474,8 @@ int main(int argc, char *argv[]){
 			proof(a,b,p);
 		else if(opt==3)
 			point_mul(a,b,p);
+		else if(opt==4)
+			get_all_p(a,b,p);
 		else
 			gmp_printf("Not an valid option!\n");
 		memset(tmp_opt, 0, sizeof(short));
@@ -367,5 +486,7 @@ int main(int argc, char *argv[]){
 	mpz_clear(a);
 	mpz_clear(b);
 	mpz_clear(p);
+	if(all_p)
+		free(all_p);
 	return 0;
 }
