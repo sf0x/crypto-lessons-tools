@@ -8,8 +8,6 @@
 * ./dlog 7464 33115 35731
 * x = 19637
 *
-* Lorenz Troiza
-* 108014236463
 ***********************************/
 
 int sqm(mpz_t result, mpz_t g, mpz_t e, mpz_t modulus){
